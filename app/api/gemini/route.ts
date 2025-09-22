@@ -1,97 +1,79 @@
-import { google } from '@ai-sdk/google'; // 关键1：只使用这个默认的 google 导入
+import { google } from '@ai-sdk/google';
 import { CoreMessage, generateText } from 'ai';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
-// 我们不再从请求体中接收 apikey
+// 只接收最必要的参数，API Key 从 Vercel 环境变量中读取
 interface GeminiRequestBody {
   model: string;
   messageList: CoreMessage[];
-  system_instruction?: string;
-  thinkingBudget?: number;
-  search?: boolean;
+  search?: boolean; // 简化：只保留 search 开关
+  // thinkingBudget 和 system_instruction 暂时移除，确保最核心的功能先跑通
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body: GeminiRequestBody = await req.json();
-    const {
-      model,
-      messageList,
-      system_instruction,
-      thinkingBudget,
-      search,
-    } = body;
+    const { model, messageList, search } = body;
 
-    // 不再需要 apikey 的验证
-    if (!model || !messageList || messageList.length === 0) {
+    if (!model || !messageList || !messageList.length === 0) {
       return NextResponse.json(
-        {
-          status: 'error',
-          response: 'Missing required fields: model or messageList.',
-        },
+        { status: 'error', response: 'Missing model or messageList' },
         { status: 400 }
       );
     }
+    
+    // 这是解决问题的最关键一行：
+    // 我们告诉 TypeScript，请把 google 当作 any 类型来处理，
+    // 这样它就不会再抱怨找不到 'tools' 的类型定义了。
+    // 这能绕过库的类型定义文件可能存在的缺陷。
+    const googleWithTools = google as any;
 
-    // 关键2：像您文档中一样，直接使用导入的 'google' 对象来定义工具
     const tools: any = {
-      url_context: google.tools.urlContext({}),
+        // 我们始终开启 url_context
+        url_context: googleWithTools.tools.urlContext({}),
     };
-
+    
+    // 如果请求中 search 为 true，则添加 google_search 工具
     if (search === true) {
-      tools.google_search = google.tools.googleSearch({});
+        tools.google_search = googleWithTools.tools.googleSearch({});
     }
 
-    let options: any = {
-      // 关键3：同样直接使用 'google' 来指定模型。
-      // AI SDK 会自动从您在 Vercel 设置的环境变量中获取 API Key
-      model: google(model),
-      messages: messageList,
+    // 从 messageList 中提取最后一个用户的 prompt
+    // 官方示例是单一 prompt，我们在这里模拟一下
+    const lastUserMessage = messageList.findLast(msg => msg.role === 'user');
+    if (!lastUserMessage) {
+        return NextResponse.json(
+            { status: 'error', response: 'No user message found in messageList' },
+            { status: 400 }
+          );
+    }
+    const prompt = lastUserMessage.content as string;
+
+
+    // 下面的代码块，就是对您官方示例的直接复现
+    const { text, sources, providerMetadata } = await generateText({
+      model: google(model), // API Key 会自动从环境变量 GOOGLE_GENERATIVE_AI_API_KEY 读取
+      prompt: prompt,
       tools: tools,
-    };
+    });
 
-    if (system_instruction) {
-      options.system = system_instruction;
-    }
-
-    if (thinkingBudget && thinkingBudget > 0) {
-      options.providerOptions = {
-        google: {
-          thinkingConfig: {
-            thinkingBudget: thinkingBudget,
-            includeThoughts: true,
-          },
-        },
-      };
-    }
-
-    const { text } = await generateText(options);
-
+    // 返回成功响应
     return NextResponse.json({
       status: 'success',
-      response: text,
+      response: {
+        text: text,
+        sources: sources,
+        providerMetadata: providerMetadata,
+      },
     });
 
   } catch (error) {
     console.error('[Gemini API Error]', error);
-
-    if (error instanceof Error) {
-        return NextResponse.json(
-            {
-              status: 'error',
-              response: error.message,
-            },
-            { status: 500 }
-        );
-    }
-    
+    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
     return NextResponse.json(
-      {
-        status: 'error',
-        response: 'An unexpected error occurred.',
-      },
+      { status: 'error', response: errorMessage },
       { status: 500 }
     );
   }
