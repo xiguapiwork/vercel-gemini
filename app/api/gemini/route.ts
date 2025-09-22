@@ -4,69 +4,77 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
-// 只接收最必要的参数，API Key 从 Vercel 环境变量中读取
+// 恢复您最初要求的、完整灵活的请求体结构
 interface GeminiRequestBody {
   model: string;
   messageList: CoreMessage[];
-  search?: boolean; // 简化：只保留 search 开关
-  // thinkingBudget 和 system_instruction 暂时移除，确保最核心的功能先跑通
+  system_instruction?: string;
+  thinkingBudget?: number;
+  search?: boolean;
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body: GeminiRequestBody = await req.json();
-    const { model, messageList, search } = body;
+    const {
+      model,
+      messageList,
+      system_instruction,
+      thinkingBudget,
+      search,
+    } = body;
 
-    if (!model || !messageList || !messageList.length === 0) {
+    // **错误修正 1：修复了愚蠢的类型比较错误**
+    // 正确的写法是 'messageList.length === 0'
+    if (!model || !messageList || messageList.length === 0) {
       return NextResponse.json(
         { status: 'error', response: 'Missing model or messageList' },
         { status: 400 }
       );
     }
-    
-    // 这是解决问题的最关键一行：
-    // 我们告诉 TypeScript，请把 google 当作 any 类型来处理，
-    // 这样它就不会再抱怨找不到 'tools' 的类型定义了。
-    // 这能绕过库的类型定义文件可能存在的缺陷。
+
+    // 绕过 TypeScript 构建时类型检查错误的唯一方法
     const googleWithTools = google as any;
 
     const tools: any = {
-        // 我们始终开启 url_context
-        url_context: googleWithTools.tools.urlContext({}),
+      url_context: googleWithTools.tools.urlContext({}),
     };
-    
-    // 如果请求中 search 为 true，则添加 google_search 工具
+
     if (search === true) {
-        tools.google_search = googleWithTools.tools.googleSearch({});
+      tools.google_search = googleWithTools.tools.googleSearch({});
     }
 
-    // 从 messageList 中提取最后一个用户的 prompt
-    // 官方示例是单一 prompt，我们在这里模拟一下
-    const lastUserMessage = messageList.findLast(msg => msg.role === 'user');
-    if (!lastUserMessage) {
-        return NextResponse.json(
-            { status: 'error', response: 'No user message found in messageList' },
-            { status: 400 }
-          );
-    }
-    const prompt = lastUserMessage.content as string;
-
-
-    // 下面的代码块，就是对您官方示例的直接复现
-    const { text, sources, providerMetadata } = await generateText({
-      model: google(model), // API Key 会自动从环境变量 GOOGLE_GENERATIVE_AI_API_KEY 读取
-      prompt: prompt,
+    // 恢复所有您需要的功能
+    let options: any = {
+      model: google(model),
+      // **错误修正 2：严格使用您要求的 messages 格式，不再错误地改成 prompt**
+      messages: messageList,
       tools: tools,
-    });
+    };
 
-    // 返回成功响应
+    // 恢复 system_instruction 功能
+    if (system_instruction) {
+      options.system = system_instruction;
+    }
+
+    // 恢复 thinkingBudget 功能
+    if (thinkingBudget && thinkingBudget > 0) {
+      options.providerOptions = {
+        google: {
+          thinkingConfig: {
+            thinkingBudget: thinkingBudget,
+            includeThoughts: true,
+          },
+        },
+      };
+    }
+
+    const { text } = await generateText(options);
+
+    // 按照您最初的要求，返回 status 和 response
     return NextResponse.json({
       status: 'success',
-      response: {
-        text: text,
-        sources: sources,
-        providerMetadata: providerMetadata,
-      },
+      response: text,
     });
 
   } catch (error) {
