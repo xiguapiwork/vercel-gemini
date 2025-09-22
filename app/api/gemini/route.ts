@@ -1,5 +1,6 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { CoreMessage, generateText, GenerateTextOptions } from 'ai';
+// 修正第一处：从下面的 import 语句中移除了 GenerateTextOptions
+import { CoreMessage, generateText } from 'ai';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'edge';
@@ -47,7 +48,9 @@ export async function POST(req: NextRequest) {
       tools.google_search = google.tools.googleSearch({});
     }
 
-    const options: GenerateTextOptions = {
+    // 修正第二处：将 const options: GenerateTextOptions 改为 let options: any
+    // 使用 let 是因为我们后面可能会动态添加属性
+    let options: any = {
       model: google(model),
       messages: messageList,
       tools: tools,
