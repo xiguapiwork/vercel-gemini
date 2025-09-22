@@ -1,4 +1,4 @@
-import { google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI, google } from '@ai-sdk/google';
 import { CoreMessage, generateText } from 'ai';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -6,6 +6,7 @@ export const runtime = 'edge';
 
 // 恢复您最初要求的、完整灵活的请求体结构
 interface GeminiRequestBody {
+  apikey: string;
   model: string;
   messageList: CoreMessage[];
   system_instruction?: string;
@@ -17,6 +18,7 @@ export async function POST(req: NextRequest) {
   try {
     const body: GeminiRequestBody = await req.json();
     const {
+      apikey,
       model,
       messageList,
       system_instruction,
@@ -24,19 +26,29 @@ export async function POST(req: NextRequest) {
       search,
     } = body;
 
-    // **错误修正 1：修复了愚蠢的类型比较错误**
-    // 正确的写法是 'messageList.length === 0'
-    if (!model || !messageList || messageList.length === 0) {
+    // 修复了之前的低级错误，并添加了对 apikey 的验证
+    if (!apikey || !model || !messageList || messageList.length === 0) {
       return NextResponse.json(
-        { status: 'error', response: 'Missing model or messageList' },
+        { status: 'error', response: 'Missing required fields: apikey, model, or messageList' },
         { status: 400 }
       );
     }
 
-    // 绕过 TypeScript 构建时类型检查错误的唯一方法
+    // 关键修复：
+    // 这是解决那个反复出现的构建错误的唯一正确方法。
+    // 我们告诉 TypeScript 编译器：“请相信我，我知道 google 对象上有一个 'tools' 属性，
+    // 即使你从类型定义里找不到它。”
+    // 这能直接绕过库的类型定义缺陷。
     const googleWithTools = google as any;
+    
+    // 核心逻辑：
+    // 创建一个使用您传来 apikey 的、专用的 provider 实例
+    const customGoogleProvider = createGoogleGenerativeAI({
+        apiKey: apikey,
+    });
 
     const tools: any = {
+      // 使用 googleWithTools 来定义工具
       url_context: googleWithTools.tools.urlContext({}),
     };
 
@@ -44,20 +56,20 @@ export async function POST(req: NextRequest) {
       tools.google_search = googleWithTools.tools.googleSearch({});
     }
 
-    // 恢复所有您需要的功能
+    // 构建 generateText 的 options，严格遵循您的所有要求
     let options: any = {
-      model: google(model),
-      // **错误修正 2：严格使用您要求的 messages 格式，不再错误地改成 prompt**
+      // 使用您自定义的 provider 来初始化模型，确保 apikey 被使用
+      model: customGoogleProvider(model),
+      // 使用完整的 messageList
       messages: messageList,
       tools: tools,
     };
 
-    // 恢复 system_instruction 功能
+    // 添加所有可选功能
     if (system_instruction) {
       options.system = system_instruction;
     }
 
-    // 恢复 thinkingBudget 功能
     if (thinkingBudget && thinkingBudget > 0) {
       options.providerOptions = {
         google: {
@@ -71,7 +83,7 @@ export async function POST(req: NextRequest) {
 
     const { text } = await generateText(options);
 
-    // 按照您最初的要求，返回 status 和 response
+    // 成功返回
     return NextResponse.json({
       status: 'success',
       response: text,
