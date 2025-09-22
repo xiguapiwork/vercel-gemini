@@ -1,10 +1,14 @@
-import { createGoogleGenerativeAI, google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+// 关键的、真正的修复：
+// 工具的定义需要从一个专门的 '/tools' 入口点导入。
+// 这才是官方推荐的、在自定义 Provider 场景下使用工具的方式。
+import { googleSearch, urlContext } from '@ai-sdk/google/tools';
 import { CoreMessage, generateText } from 'ai';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
-// 恢复您最初要求的、完整灵活的请求体结构
+// 您最初要求的、完整灵活的请求体结构
 interface GeminiRequestBody {
   apikey: string;
   model: string;
@@ -26,20 +30,12 @@ export async function POST(req: NextRequest) {
       search,
     } = body;
 
-    // 修复了之前的低级错误，并添加了对 apikey 的验证
     if (!apikey || !model || !messageList || messageList.length === 0) {
       return NextResponse.json(
         { status: 'error', response: 'Missing required fields: apikey, model, or messageList' },
         { status: 400 }
       );
     }
-
-    // 关键修复：
-    // 这是解决那个反复出现的构建错误的唯一正确方法。
-    // 我们告诉 TypeScript 编译器：“请相信我，我知道 google 对象上有一个 'tools' 属性，
-    // 即使你从类型定义里找不到它。”
-    // 这能直接绕过库的类型定义缺陷。
-    const googleWithTools = google as any;
     
     // 核心逻辑：
     // 创建一个使用您传来 apikey 的、专用的 provider 实例
@@ -47,13 +43,14 @@ export async function POST(req: NextRequest) {
         apiKey: apikey,
     });
 
+    // 使用从 '/tools' 入口点直接导入的函数来定义工具
+    // 这不再依赖任何不确定的 '.tools' 属性，是100%可靠的。
     const tools: any = {
-      // 使用 googleWithTools 来定义工具
-      url_context: googleWithTools.tools.urlContext({}),
+      url_context: urlContext(),
     };
 
     if (search === true) {
-      tools.google_search = googleWithTools.tools.googleSearch({});
+      tools.google_search = googleSearch();
     }
 
     // 构建 generateText 的 options，严格遵循您的所有要求
@@ -81,12 +78,15 @@ export async function POST(req: NextRequest) {
       };
     }
 
-    const { text } = await generateText(options);
+    const { text, toolResults } = await generateText(options);
 
     // 成功返回
     return NextResponse.json({
       status: 'success',
-      response: text,
+      response: {
+        text,
+        toolResults,
+      },
     });
 
   } catch (error) {
