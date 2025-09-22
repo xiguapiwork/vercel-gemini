@@ -1,14 +1,11 @@
-import {
-  createGoogleGenerativeAI,
-  google as defaultGoogleProvider, // 关键修正1：从 @ai-sdk/google 导入默认的 google 对象，重命名为 defaultGoogleProvider
-} from '@ai-sdk/google';
+import { google } from '@ai-sdk/google'; // 关键1：只使用这个默认的 google 导入
 import { CoreMessage, generateText } from 'ai';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
+// 我们不再从请求体中接收 apikey
 interface GeminiRequestBody {
-  apikey: string;
   model: string;
   messageList: CoreMessage[];
   system_instruction?: string;
@@ -20,7 +17,6 @@ export async function POST(req: NextRequest) {
   try {
     const body: GeminiRequestBody = await req.json();
     const {
-      apikey,
       model,
       messageList,
       system_instruction,
@@ -28,62 +24,46 @@ export async function POST(req: NextRequest) {
       search,
     } = body;
 
-    if (!apikey || !model || !messageList || messageList.length === 0) {
+    // 不再需要 apikey 的验证
+    if (!model || !messageList || messageList.length === 0) {
       return NextResponse.json(
         {
           status: 'error',
-          response: 'Missing required fields: apikey, model, or messageList.',
+          response: 'Missing required fields: model or messageList.',
         },
         { status: 400 }
       );
     }
 
-    // 关键修正2：创建一个用于鉴权的、纯净的 provider 实例，这个实例只用于指定模型和API Key
-    const customGoogleProvider = createGoogleGenerativeAI({
-      apiKey: apikey,
-    });
-
-    // 关键修正3：使用默认导出的 'defaultGoogleProvider' 来定义工具。
-    // 工具本身是无状态的，它们的定义不依赖于自定义的API Key。
-    // 但是，它们的执行（如果需要API Key）会通过 generateText 的 providerOptions 传递。
+    // 关键2：像您文档中一样，直接使用导入的 'google' 对象来定义工具
     const tools: any = {
-      url_context: defaultGoogleProvider.tools.urlContext({}),
+      url_context: google.tools.urlContext({}),
     };
 
     if (search === true) {
-      tools.google_search = defaultGoogleProvider.tools.googleSearch({});
+      tools.google_search = google.tools.googleSearch({});
     }
 
     let options: any = {
-      // 关键修正4：使用我们自定义的 provider 实例来指定模型
-      model: customGoogleProvider(model),
+      // 关键3：同样直接使用 'google' 来指定模型。
+      // AI SDK 会自动从您在 Vercel 设置的环境变量中获取 API Key
+      model: google(model),
       messages: messageList,
       tools: tools,
-      // 关键修正5：将自定义的 API Key 传递给所有 Google 工具和模型的 providerOptions
-      // 这样，Google 相关的工具（如 google_search, url_context）在内部执行时，
-      // 也会使用这个 apikey。这才是官方推荐的工具鉴权方式。
-      providerOptions: {
-        google: {
-          apiKey: apikey, // 明确为所有 Google 相关的操作（包括工具）设置 API Key
-          // 其他 thinkingConfig 等可以放在这里
-        },
-      },
     };
 
     if (system_instruction) {
       options.system = system_instruction;
     }
 
-    // 将 thinkingBudget 移动到 providerOptions.google 内部，
-    // 因为它是 Google 特有的配置。
     if (thinkingBudget && thinkingBudget > 0) {
-      // 确保 providerOptions.google 存在
-      if (!options.providerOptions?.google) {
-        options.providerOptions = { google: {} };
-      }
-      options.providerOptions.google.thinkingConfig = {
-        thinkingBudget: thinkingBudget,
-        includeThoughts: true,
+      options.providerOptions = {
+        google: {
+          thinkingConfig: {
+            thinkingBudget: thinkingBudget,
+            includeThoughts: true,
+          },
+        },
       };
     }
 
