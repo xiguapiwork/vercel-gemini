@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
-// 您最初要求的、完整灵活的请求体结构
 interface GeminiRequestBody {
   apikey: string;
   model: string;
@@ -32,47 +31,34 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    
-    // 使用默认导出的 `google` 对象来定义工具，这是唯一正确的方式
-    const tools: any = {
-      url_context: google.tools.urlContext(),
-    };
 
-    if (search === true) {
-      tools.google_search = google.tools.googleSearch();
-    }
-
-    // 构建 generateText 的 options
-    let options: any = {
-      // 模型定义也使用默认的 `google` 对象
+    // 这是最终的、严格遵循您要求的代码
+    const { text, toolResults } = await generateText({
       model: google(model),
       messages: messageList,
-      tools: tools,
-    };
+      system: system_instruction,
 
-    // ** 这就是您提出的、最关键、最正确的解决方案 **
-    // 我们将动态 API Key 和其他 Google 特有的配置，
-    // 全部放入 `providerOptions.google` 对象中传递。
-    // AI SDK 会自动捕获并使用它们。
-    options.providerOptions = {
+      // ** 严格按照您的要求，内联定义 tools 对象，包含了您指出的 `{}` **
+      tools: {
+        url_context: google.tools.urlContext({}), // ！！！已修正，严格匹配官方文档
+        
+        ...(search === true && { 
+            google_search: google.tools.googleSearch({}) // ！！！已修正，严格匹配官方文档
+        })
+      },
+      
+      providerOptions: {
         google: {
-            apiKey: apikey, // 直接将您的动态 API Key 放在这里
-        }
-    };
-
-    // 添加所有可选功能
-    if (system_instruction) {
-      options.system = system_instruction;
-    }
-
-    if (thinkingBudget && thinkingBudget > 0) {
-        options.providerOptions.google.thinkingConfig = {
-            thinkingBudget: thinkingBudget,
-            includeThoughts: true,
-        };
-    }
-
-    const { text, toolResults } = await generateText(options);
+          apiKey: apikey,
+          ...(thinkingBudget && thinkingBudget > 0 && {
+            thinkingConfig: {
+              thinkingBudget: thinkingBudget,
+              includeThoughts: true,
+            },
+          }),
+        },
+      },
+    });
 
     // 成功返回
     return NextResponse.json({
