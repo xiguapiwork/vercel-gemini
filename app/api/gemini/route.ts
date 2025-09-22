@@ -32,21 +32,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 这是最终的、严格遵循您要求的代码
     const { text, toolResults } = await generateText({
       model: google(model),
       messages: messageList,
       system: system_instruction,
-
-      // ** 严格按照您的要求，内联定义 tools 对象，包含了您指出的 `{}` **
       tools: {
-        url_context: google.tools.urlContext({}), // ！！！已修正，严格匹配官方文档
-        
+        url_context: google.tools.urlContext({}),
         ...(search === true && { 
-            google_search: google.tools.googleSearch({}) // ！！！已修正，严格匹配官方文档
+            google_search: google.tools.googleSearch({})
         })
       },
-      
       providerOptions: {
         google: {
           apiKey: apikey,
@@ -60,7 +55,6 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // 成功返回
     return NextResponse.json({
       status: 'success',
       response: {
