@@ -1,5 +1,7 @@
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
-// 修正第一处：从下面的 import 语句中移除了 GenerateTextOptions
+import {
+  createGoogleGenerativeAI,
+  google as googleTools, // 关键修正1：导入默认的 google 对象并重命名为 googleTools 以获取工具
+} from '@ai-sdk/google';
 import { CoreMessage, generateText } from 'ai';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -36,22 +38,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const google = createGoogleGenerativeAI({
+    // 关键修正2：创建一个用于鉴权的、纯净的 provider 实例
+    const googleProvider = createGoogleGenerativeAI({
       apiKey: apikey,
     });
 
+    // 关键修正3：使用重命名的 googleTools 来定义工具
+    // 这是严格按照您文档中关于 tools 的写法
     const tools: any = {
-      url_context: google.tools.urlContext({}),
+      url_context: googleTools.tools.urlContext({}),
     };
 
     if (search === true) {
-      tools.google_search = google.tools.googleSearch({});
+      tools.google_search = googleTools.tools.googleSearch({});
     }
 
-    // 修正第二处：将 const options: GenerateTextOptions 改为 let options: any
-    // 使用 let 是因为我们后面可能会动态添加属性
     let options: any = {
-      model: google(model),
+      // 关键修正4：使用我们自定义的 provider 来指定模型
+      model: googleProvider(model),
       messages: messageList,
       tools: tools,
     };
